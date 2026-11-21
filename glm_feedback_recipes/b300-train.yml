@@ -1,0 +1,48 @@
+# Single-node GLM-5.3-Flash Text-SFT. Paths are set by b300_train.py.
+# Based on axolotl's examples/glm53-flash/qlora_fsdp.yaml.
+base_model: /weights/snapshots/base
+adapter: qlora
+load_in_4bit: true
+quantize_moe_experts: true
+bf16: true
+attn_implementation: sdpa
+activation_checkpointing:
+  enabled: true
+  implementation: fsdp
+fsdp_config:
+  fsdp_version: 2
+  offload_params: false
+  cpu_ram_efficient_loading: false
+  auto_wrap_policy: TRANSFORMER_BASED_WRAP
+  transformer_layer_cls_to_wrap: Glm5NextTextDecoderLayer
+  state_dict_type: FULL_STATE_DICT
+  reshard_after_forward: true
+
+datasets:
+  - path: /inputs/train.jsonl
+    type: chat_template
+    roles_to_train: ["assistant"]
+chat_template: tokenizer_default
+train_on_inputs: false
+val_set_size: 0
+dataset_prepared_path: /out/prepared
+output_dir: /out/adapter
+sample_packing: false
+sequence_len: 2048
+
+# The direct dense MLP projection also trains newly added dense channels.
+# MoE expert projections and the vision tower have different paths.
+lora_target_modules: '.*language_model\.layers\.[0-9]+\.(self_attn\.o_proj|mlp\.down_proj)'
+lora_r: 8
+lora_alpha: 16
+lora_dropout: 0
+micro_batch_size: 1
+gradient_accumulation_steps: 1
+num_epochs: 1
+optimizer: adamw_torch
+lr_scheduler: constant
+learning_rate: 0.0001
+warmup_steps: 0
+saves_per_epoch: 1
+logging_steps: 1
+seed: 17

@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=65"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "glm-feedback-lab"
+version = "0.1.0"
+description = "Verified feedback, GLM-5.3-Flash replicas and bounded model growth on NVIDIA B300"
+readme = "README.md"
+requires-python = ">=3.9"
+
+[project.optional-dependencies]
+checkpoint = ["torch>=2.2", "safetensors>=0.4"]
+
+[project.scripts]
+glm-fleet = "b300_fleet:main"
+glm-rotate = "b300_rotation:main"
+glm-route = "b300_router:main"
+glm-evaluate = "b300_evaluate:main"
+glm-feedback = "b300_feedback:main"
+glm-train = "b300_train:main"
+glm-checkpoint = "b300_checkpoint:main"
+glm-export = "b300_export:main"
+glm-fit = "b300_fit:main"
+glm-candidate = "b300_candidate:main"
+
+[tool.setuptools]
+packages = ["glm_feedback_recipes"]
+py-modules = ["glm_feedback", "b300_candidate", "b300_checkpoint", "b300_evaluate", "b300_export", "b300_feedback", "b300_fit", "b300_fleet", "b300_lineage", "b300_rotation", "b300_router", "b300_train"]
+
+[tool.setuptools.package-data]
+glm_feedback_recipes = ["*.yml"]

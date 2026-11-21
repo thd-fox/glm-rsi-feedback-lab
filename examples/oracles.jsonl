@@ -1,0 +1,4 @@
+{"case_id":"demo-1","expected_json":{"order_id":"AB-17"}}
+{"case_id":"demo-2","expected_json":{"anzahl":12}}
+{"case_id":"demo-3","expected_json":{"minuten":585}}
+{"case_id":"demo-4","expected_json":{"werte":[2,5,9]}}

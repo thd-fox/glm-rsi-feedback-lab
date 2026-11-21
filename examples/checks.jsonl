@@ -1,0 +1,2 @@
+{"case_id":"eval-t1","group_id":"duration","kind":"target","prompt":"Ein Termin dauert von 12:40 bis 14:05. Gib die Dauer als JSON mit dem ganzzahligen Feld dauer_minuten aus.","expected_json":{"dauer_minuten":85}}
+{"case_id":"eval-c1","group_id":"locations","kind":"control","prompt":"Gib die Stadt aus der Zeichenfolge 'Ort: Bremen' als JSON mit dem Feld stadt aus.","expected_json":{"stadt":"Bremen"}}
