@@ -1,19 +1,23 @@
-# GLM Feedback Lab
+# GLM RSI Feedback Lab
 
-Zwei feste GPU-Gruppen auf einem Server mit acht NVIDIA B300 wechseln sich beim Serving und beim Training von GLM-5.3-Flash ab. Jede Gruppe verfügt über vier Karten. Ein lokaler Router hält die Chat-API auf Port 8000 erreichbar, während die nächste Modellgeneration vorbereitet wird.
+GLM RSI Feedback Lab explores **recursive self-improvement (RSI)** with GLM-5.3-Flash. In each operator-triggered round, the live model proposes corrections for failed user requests. An independent verifier checks the corrections before they enter the training set. If the resulting candidate passes evaluation, it becomes the live model and proposes corrections for the next round.
 
-| Betriebsphase | Gruppe A · 4 B300 | Gruppe B · 4 B300 |
+Two groups of four NVIDIA B300 GPUs share one server. While one group serves requests, the other trains and tests the candidate. A local router keeps the chat API at the same address on port 8000 as the groups switch roles.
+
+| Phase | Group A · 4 B300s | Group B · 4 B300s |
 |---|---|---|
-| Erste Runde | Live-Anfragen und Feedback-Korrekturen | Trainieren, exportieren und prüfen |
-| Vergleich | Bisheriges Modell beantwortet Testfälle | Kandidat beantwortet dieselben Testfälle |
-| Nach erfolgreicher Freigabe | Laufende Antworten beenden, nächste Trainingsrunde übernehmen | Live-Anfragen und Feedback-Korrekturen |
-| Bei abgelehntem Kandidaten | Bleibt aktiv | Kandidat wird nicht freigegeben |
+| First round | Serves requests and proposes corrections | Trains, exports, and tests the candidate |
+| Evaluation | Answers held-out tasks | Answers the same tasks for comparison |
+| Candidate passes | Finishes in-flight responses, then takes the next training round | Takes over live requests and feedback corrections |
+| Candidate fails | Continues serving | Ends the round without promotion |
 
-**Warum BF16?** Für das vollständige GLM-5.3-Flash dokumentiert NVIDIA zwei B300 in NVFP4 (ca. 205 GB Gewichte) und vier B300 in FP8 (ca. 330 GB) oder BF16 (ca. 645 GB). Alle Varianten enthalten das 320-Milliarden-Parameter-Modell. BF16 erlaubt es, verifizierte Adapter in die Ausgangsgewichte einzurechnen und beide Generationen in derselben Präzision zu vergleichen. NVIDIAs Profile betreffen Inferenz. Vier-Karten-QLoRA und selbst erzeugte Checkpoints brauchen einen eigenen Hardwaretest. [NVIDIA-Profilmatrix](https://docs.nvidia.com/nim/large-language-models/2.1.4/reference/support-matrix.html#glm-5-3-flash) · [Gewichtedownloads](https://docs.nvidia.com/nim/large-language-models/2.1.4/get-started/advanced/get-started-glm-5.3-flash.html) · [Z.ai](https://docs.z.ai/guides/vlm/glm-5.3-flash)
+## Why BF16?
 
-## Start auf dem Server
+NVIDIA lists inference profiles for the full 320-billion-parameter model at three precisions. NVFP4 uses two B300s per instance and downloads about 205 GB of weights. FP8 and BF16 each use four B300s, with downloads of about 330 GB and 645 GB respectively. This project uses BF16 so it can merge the trained adapter into the base weights and compare successive generations at the same precision. Four-GPU QLoRA training and serving custom checkpoints still require validation on B300 hardware. [NVIDIA support matrix](https://docs.nvidia.com/nim/large-language-models/2.1.4/reference/support-matrix.html#glm-5-3-flash) · [NVIDIA checkpoint guide](https://docs.nvidia.com/nim/large-language-models/2.1.4/get-started/advanced/get-started-glm-5.3-flash.html) · [Z.ai model overview](https://docs.z.ai/guides/vlm/glm-5.3-flash)
 
-Vorausgesetzt werden Linux, Python ≥3.9, Docker mit NVIDIA Container Toolkit, der lokale [BF16-Checkpoint](https://huggingface.co/zai-org/GLM-5.3-Flash-BF16) und die unten genannten Images. Für Export und Speichertest braucht der Host einen CUDA-Build von llama.cpp mit GLM5-Next-Unterstützung sowie die Python-Abhängigkeiten des Konverters. Die temporären BF16-Arbeitskopien benötigen je nach Dateisystem mehrere Terabyte Speicherplatz. [llama.cpp-Revision für den Lasttest](https://github.com/ggml-org/llama.cpp/tree/e50c254a22c590c9d2a60db86690d48d42497e2b)
+## Run on the server
+
+Start from the repository root on Linux with Python 3.9 or later, Docker, the NVIDIA Container Toolkit, and a local BF16 checkpoint. Export and memory testing also require a CUDA build of llama.cpp with GLM5-Next support and the converter’s Python dependencies. Allow several terabytes of disk space for temporary BF16 copies, depending on the filesystem. [BF16 checkpoint](https://huggingface.co/zai-org/GLM-5.3-Flash-BF16) · [llama.cpp revision used for the memory test](https://github.com/ggml-org/llama.cpp/tree/e50c254a22c590c9d2a60db86690d48d42497e2b)
 
 ```sh
 python3 -m venv .venv
@@ -25,15 +29,17 @@ glm-rotate init --state runs/rotation --model /models/GLM-5.3-Flash-BF16
 glm-route --state runs/rotation --port 8000
 ```
 
-Den Router als eigenen Prozess laufen lassen. Das vorhandene Guardrail-Gateway kann seine Anfragen an `http://127.0.0.1:8000/v1` schicken. Der Modellalias lautet `glm-5.3-flash`. In einer zweiten Shell mit aktivierter Umgebung:
+Keep the router running in its own process. An existing guardrail gateway can send requests to `http://127.0.0.1:8000/v1` using the model alias `glm-5.3-flash`. In a second shell, activate the same environment and run one training step with the sample data.
 
 ```sh
 glm-feedback --cases examples/cases.jsonl --oracles examples/oracles.jsonl --out runs/feedback-01
 glm-rotate round --state runs/rotation --data runs/feedback-01/train.jsonl --checks examples/checks.jsonl --llama-dir /opt/llama.cpp --steps 1
 ```
 
-Die synthetischen Beispiele zeigen das Datenformat. Wenn das Ausgangsmodell beide Testaufgaben schon löst, kann der Kandidat dort keinen Zugewinn zeigen und die Gruppe bleibt aktiv. Für eine belastbare Freigabe werden eigene, unabhängige Fehler- und Kontrollfälle benötigt.
+The synthetic examples illustrate the data format. If the live model already solves both sample evaluation tasks, the candidate cannot demonstrate a gain and the live group keeps serving. For a meaningful promotion decision, provide independent held-out failure cases and controls.
 
-Der [Trainingsablauf](TRAINING.md) erklärt Rollenwechsel, Wiederanlauf und Größenlimit. Der Ein-Karten-Lasttest gilt für den quantisierten Text-Export eines Kandidaten. Live läuft das vollständige Modell auf vier B300.
+The full live model runs on four B300s. Each candidate’s quantized text export must also fit on one B300, including cache and reserved memory. The training guide covers the role switch, recovery, and model growth limit. [Training guide (German)](TRAINING.md)
 
-**Teststand:** Lokal geprüft mit echten kleinen Gewichtstensoren, lokalen HTTP-Diensten und simulierten Docker-/GPU-Schnittstellen. Der vollständige GLM-Lauf auf acht B300 steht aus. Die Tests laufen mit `python -m unittest discover -s tests`.
+## Test status
+
+Local tests use small real weight tensors, local HTTP services, and simulated Docker and GPU interfaces. Run them with `python -m unittest discover -s tests`. An end-to-end GLM run on eight physical B300s is still pending.
